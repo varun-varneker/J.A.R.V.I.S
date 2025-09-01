@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+python-multipart
+httpx
+faster-whisper
+pydantic
+pip freeze > requirements.txt
+

@@ -1,0 +1,110 @@
+cat > web/index.html << 'EOF'
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>JARVIS – Cloud Brain</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; }
+    button { padding: 10px 16px; border-radius: 10px; border: 1px solid #ccc; cursor: pointer; }
+    #log { margin-top: 16px; white-space: pre-wrap; background: #f7f7f7; padding: 12px; border-radius: 8px; }
+    .row { display:flex; gap:12px; align-items:center; margin:12px 0; }
+    input, textarea { width:100%; padding:8px; }
+  </style>
+</head>
+<body>
+  <h2>JARVIS – Cloud Brain (Codespaces)</h2>
+
+  <div class="row">
+    <button id="rec">🎙️ Hold to Record</button>
+    <span id="status"></span>
+  </div>
+
+  <div class="row">
+    <textarea id="transcript" rows="3" placeholder="Transcript will appear here"></textarea>
+  </div>
+
+  <div class="row">
+    <button id="ask">Ask</button>
+  </div>
+
+  <div class="row">
+    <textarea id="reply" rows="4" placeholder="Assistant reply will appear here"></textarea>
+  </div>
+
+  <div id="log"></div>
+
+<script>
+const recBtn = document.getElementById('rec');
+const askBtn = document.getElementById('ask');
+const statusEl = document.getElementById('status');
+const transcriptEl = document.getElementById('transcript');
+const replyEl = document.getElementById('reply');
+const logEl = document.getElementById('log');
+
+let mediaRecorder, chunks = [];
+
+function log(m){ logEl.textContent += m + "\\n"; }
+
+async function startRecording(){
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+  chunks = [];
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    const blob = new Blob(chunks, { type: 'audio/webm' });
+    const file = new File([blob], "audio.webm", { type: "audio/webm" });
+    const form = new FormData();
+    form.append("audio", file);
+
+    statusEl.textContent = "Transcribing…";
+    const resp = await fetch("/stt", { method:"POST", body: form });
+    const data = await resp.json();
+    transcriptEl.value = data.text || "";
+    statusEl.textContent = "STT: " + (data.engine || "unknown");
+    speak("You said: " + transcriptEl.value);
+  };
+  mediaRecorder.start();
+}
+
+function stopRecording(){
+  if (mediaRecorder && mediaRecorder.state !== "inactive"){
+    mediaRecorder.stop();
+  }
+}
+
+recBtn.onmousedown = () => { statusEl.textContent = "Recording…"; startRecording(); };
+recBtn.onmouseup = () => { statusEl.textContent = "Processing…"; stopRecording(); };
+recBtn.ontouchstart = (e) => { e.preventDefault(); statusEl.textContent = "Recording…"; startRecording(); };
+recBtn.ontouchend = (e) => { e.preventDefault(); statusEl.textContent = "Processing…"; stopRecording(); };
+
+askBtn.onclick = async () => {
+  const text = transcriptEl.value.trim();
+  if (!text){ return; }
+  const body = {
+    messages: [{ role: "user", content: text }],
+    system_prompt: "You are JARVIS: concise, helpful, safe.",
+    model: "gpt-4o-mini"
+  };
+  const resp = await fetch("/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json();
+  replyEl.value = data.reply || "(no reply)";
+  speak(replyEl.value);
+};
+
+function speak(t){
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(t);
+  u.rate = 1.0; u.pitch = 1.0;
+  speechSynthesis.cancel(); // barge-in
+  speechSynthesis.speak(u);
+}
+</script>
+</body>
+</html>
+
